@@ -24,4 +24,4 @@ echo "Running autoattack"
 # Navigate to your directory, if needed
 
 # Run the Python script
-time srun -n 1 python3 run_autoattack_lin_prob_2.py
+time srun -n 1 python3 run_autoattack_lin_prob_var_eps.py

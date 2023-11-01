@@ -37,7 +37,7 @@ model, preprocess = clip.load('RN50', device)
 batch_size = 128
 
 print("load model")
-classifier = torch.load("/data/gpfs/projects/punim2103/new_attempt_2_classifier_model_full.pth", map_location=device)
+classifier = torch.load("/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth", map_location=device)
 resolution = 224  # specify the input resolution for your CLIP model
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
 wrapped_model.eval()
@@ -59,7 +59,7 @@ import torch
 
 batch = 0
 # Prepare to save results to CSV
-csv_path = '/data/gpfs/projects/punim2103/autoattack_results/original_model_new_attempt_2/results.csv'
+csv_path = '/data/gpfs/projects/punim2103/csv/original_model_new_attempt_4_results.csv'
 
 with open(csv_path, 'w', newline='') as csvfile:
     csv_writer = csv.writer(csvfile)
@@ -76,15 +76,15 @@ with open(csv_path, 'w', newline='') as csvfile:
         outputs = wrapped_model(images)
         _, predicted = torch.max(outputs, 1)
         initial_acc = (predicted == labels).sum().item()
-        print('Initial Accuracy for Batch {}: {:.2f}%'.format(batch, 100 * initial_acc / batch_size))
+        print('Initial Accuracy for Batch {}: {:.2f}%'.format(batch, 100 * initial_acc / images.shape[0]))
 
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=batch_size)
 
         # Save adversarial examples (x_adv) for this batch as a tensor
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/original_model_new_attempt_2/eps_{epsilon}_batch_{batch}_adv.pt')
+        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/original_model_new_attempt_4/eps_{epsilon}_batch_{batch}_adv.pt')
 
         # Save results to CSV
-        csv_writer.writerow([epsilon, 100 * initial_acc / batch_size, robust_accuracy, res.item()])
+        csv_writer.writerow([epsilon, 100 * initial_acc / images.shape[0] ,robust_accuracy, res.item()])
 
         print("done")
         if batch * batch_size >= 1000:  # Stop after processing 1000 images

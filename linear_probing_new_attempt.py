@@ -59,7 +59,7 @@ optimizer = optim.Adam(classifier.parameters(), lr=0.001)
 
 
 # Train the linear classifier
-num_epochs = 10
+num_epochs = 20
 for epoch in range(num_epochs):
     print("start epoch")
     classifier.train()
@@ -76,6 +76,6 @@ for epoch in range(num_epochs):
 #save 
 print("save classifier")
 #torch.save(classifier.state_dict(), "/data/gpfs/projects/punim2103/classifier_model.pth")
-torch.save(classifier, "/data/gpfs/projects/punim2103/new_attempt_2_classifier_model_full.pth")
+torch.save(classifier, "/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth")
 
 

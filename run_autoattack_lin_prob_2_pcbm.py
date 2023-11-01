@@ -44,7 +44,7 @@ sys.path.append('/data/gpfs/projects/punim2103/post_hoc_cbm')
 print("load model")
 #classifier = torch.load("/data/gpfs/projects/punim2103/classifier_model_full.pth", map_location=device)
 
-classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt", map_location=device)
+classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model_lam:0.0002__alpha:0.99__seed:42_2.ckpt", map_location=device)
 
 resolution = 224  # specify the input resolution for your CLIP model
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
@@ -67,7 +67,7 @@ import torch
 
 batch = 0
 # Prepare to save results to CSV
-csv_path = '/data/gpfs/projects/punim2103/autoattack_results/hybrid_pcbm_2/results.csv'
+csv_path = '/data/gpfs/projects/punim2103/csv/hybrid_pcbm_3_results.csv'
 
 with open(csv_path, 'w', newline='') as csvfile:
     csv_writer = csv.writer(csvfile)
@@ -89,7 +89,7 @@ with open(csv_path, 'w', newline='') as csvfile:
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=batch_size)
 
         # Save adversarial examples (x_adv) for this batch as a tensor
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/hybrid_pcbm_2/eps_{epsilon}_batch_{batch}_adv.pt')
+        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/hybrid_pcbm_3/eps_{epsilon}_batch_{batch}_adv.pt')
 
         # Save results to CSV
         csv_writer.writerow([epsilon, 100 * initial_acc / batch_size, robust_accuracy, res.item()])
