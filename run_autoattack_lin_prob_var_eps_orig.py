@@ -27,7 +27,7 @@ class ModelWrapper(nn.Module):
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load('RN50', device)
-batch_size = 4
+batch_size = 128
 
 print("load model")
 classifier = torch.load("/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth", map_location=device)
@@ -42,7 +42,7 @@ test_loader = DataLoader(test_subset, batch_size=batch_size)
 
 epsilon = float(sys.argv[1])
 
-adversary = AutoAttack(wrapped_model, norm='Linf', eps=epsilon, version='standard', device=device)
+adversary = AutoAttack(wrapped_model, norm='L2', eps=epsilon, version='standard', device=device)
 
 csv_path = f'/data/gpfs/projects/punim2103/csv_l2/original_model_results_eps_{epsilon}.csv'
 batch = 0
@@ -72,7 +72,7 @@ with open(csv_path, 'w', newline='') as csvfile:
         csv_writer.writerow([epsilon, 100 * initial_acc, 100 * robust_accuracy, res.item()])
 
         print("done")
-        if batch * batch_size >= 4:
+        if batch * batch_size >= 1000:
             break
 
     # Calculate and write the mean values at the end of the csv
