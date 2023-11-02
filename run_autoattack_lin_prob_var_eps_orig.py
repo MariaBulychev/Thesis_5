@@ -13,8 +13,6 @@ class ModelWrapper(nn.Module):
         super(ModelWrapper, self).__init__()
         self.classifier = classifier
         self.clip_model = clip_model
-        
-        # Define the preprocessing pipeline within the ModelWrapper
         self.preprocess = transforms.Compose([
             transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.CenterCrop(resolution),
@@ -24,24 +22,16 @@ class ModelWrapper(nn.Module):
     def forward(self, images):
         images = self.preprocess(images)
         features = self.clip_model.encode_image(images)
-        logits = self.classifier(features.float().to(device))
-        return logits
+        outputs = self.classifier(features.float().to(device))
+        return outputs
 
-
-
-# Load the model and preprocessing 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load('RN50', device)
-batch_size = 128
-
-import sys
-sys.path.append('/data/gpfs/projects/punim2103')          # Adding the main project directory
-sys.path.append('/data/gpfs/projects/punim2103/post_hoc_cbm')
+batch_size = 4
 
 print("load model")
-classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model_lam:0.0002__alpha:0.99__seed:42_2.ckpt", map_location=device)
-
-resolution = 224  # specify the input resolution for your CLIP model
+classifier = torch.load("/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth", map_location=device)
+resolution = 224
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
 wrapped_model.eval()
 
@@ -54,7 +44,7 @@ epsilon = float(sys.argv[1])
 
 adversary = AutoAttack(wrapped_model, norm='Linf', eps=epsilon, version='standard', device=device)
 
-csv_path = f'/data/gpfs/projects/punim2103/csv/hybrid_pcbm_3_results_eps_{epsilon}.csv'
+csv_path = f'/data/gpfs/projects/punim2103/csv_l2/original_model_results_eps_{epsilon}.csv'
 batch = 0
 results = []
 
@@ -76,13 +66,13 @@ with open(csv_path, 'w', newline='') as csvfile:
 
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=batch_size)
 
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/hybrid_pcbm_3/eps_{epsilon}_batch_{batch}_adv.pt')
+        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/l_2/original_model/eps_{epsilon}_batch_{batch}_adv.pt')
 
         results.append([100 * initial_acc, 100* robust_accuracy, res.item()])
         csv_writer.writerow([epsilon, 100 * initial_acc, 100 * robust_accuracy, res.item()])
 
         print("done")
-        if batch * batch_size >= 1000:
+        if batch * batch_size >= 4:
             break
 
     # Calculate and write the mean values at the end of the csv
