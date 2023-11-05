@@ -26,25 +26,25 @@ class ModelWrapper(nn.Module):
         return outputs
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load('RN50', device)
+model, preprocess = clip.load('ViT-B/32', device)
 batch_size = 128
 
 print("load model")
-classifier = torch.load("/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth", map_location=device)
+classifier = torch.load("/data/gpfs/projects/punim2103/classifier_Vit32.pth", map_location=device)
 resolution = 224
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
 wrapped_model.eval()
 
 print("load data")
 test_dataset = datasets.CIFAR10(root="./data", train=False, transform=transforms.ToTensor())
-test_subset = Subset(test_dataset, range(1000))
+test_subset = Subset(test_dataset, range(10000))
 test_loader = DataLoader(test_subset, batch_size=batch_size)
 
-epsilon = float(sys.argv[1])
+epsilon = float(sys.argv[1]) / 255.
 
-adversary = AutoAttack(wrapped_model, norm='L2', eps=epsilon, version='standard', device=device)
+adversary = AutoAttack(wrapped_model, norm='Linf', eps=epsilon, version='standard', device=device)
 
-csv_path = f'/data/gpfs/projects/punim2103/csv_l2/original_model_results_eps_{epsilon}.csv'
+csv_path = f'/data/gpfs/projects/punim2103/csv_linf/original_model_vit32_results_eps_{epsilon}.csv'
 batch = 0
 results = []
 
@@ -66,13 +66,13 @@ with open(csv_path, 'w', newline='') as csvfile:
 
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=batch_size)
 
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/l_2/original_model/eps_{epsilon}_batch_{batch}_adv.pt')
+        #torch.save(x_adv, f'/data/gpfs/projects/punim2103/autoattack_results/l_inf/original_model_sanity_check_2/eps_{epsilon}_batch_{batch}_adv.pt')
 
         results.append([100 * initial_acc, 100* robust_accuracy, res.item()])
         csv_writer.writerow([epsilon, 100 * initial_acc, 100 * robust_accuracy, res.item()])
 
         print("done")
-        if batch * batch_size >= 1000:
+        if batch * batch_size >= 10000:
             break
 
     # Calculate and write the mean values at the end of the csv
