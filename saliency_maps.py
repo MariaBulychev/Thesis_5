@@ -25,7 +25,7 @@ class ModelWrapper(nn.Module):
     def forward(self, images):
         images = self.preprocess(images)
         features = self.clip_model.encode_image(images) # produces embeddings
-        x = classifier.bottleneck.compute_dist(features) # computes distances between embeddings and concepts. The output has shape torch.Size([2, 170])
+        x = classifier.bottleneck.compute_dist(features.float()) # computes distances between embeddings and concepts. The output has shape torch.Size([2, 170])
         logits = classifier.bottleneck.classifier(x) # linear classifier maps x to the classes. The output has shape torch.Size([2, 10])
         #logits = self.classifier(features.float().to(device))
         return x    #     logits wenn man annimmt dass concepts die classes sind 
@@ -60,7 +60,7 @@ ig = IntegratedGradients(wrapped_model)
 
 
 # Load CIFAR-10 test set
-cifar10_testset = datasets.CIFAR10(root='./data', train=False, download=True, transform=preprocess)
+cifar10_testset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transforms.ToTensor())
 test_loader = DataLoader(cifar10_testset, batch_size=2, shuffle=False)
 
 
@@ -79,7 +79,7 @@ sorted_indices = torch.argsort(distances, dim=1)
 # Select the top 5 concept indices
 top_concepts_indices = sorted_indices[:, :5]
 
-save_dir = "/data/gpfs/projects/punim2103/ig_images"
+save_dir = "/data/gpfs/projects/punim2103/ig_images/2"
 
 for image_idx, image in enumerate(images):
     np_img = image.cpu().detach().numpy()
