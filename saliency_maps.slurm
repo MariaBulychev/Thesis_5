@@ -2,7 +2,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --time=0-2:00:00
-#SBATCH -p gpu-a100-short         
+#SBATCH -p gpu-a100      
 #SBATCH --gres=gpu:1        
 
 
