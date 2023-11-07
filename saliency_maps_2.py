@@ -55,33 +55,9 @@ class ModelWrapper(nn.Module):
 
     def forward(self, images):
         images = self.preprocess(images)
-        features = self.clip_model.encode_image(images) # produces embeddings
-        x = classifier.bottleneck.compute_dist(features.float()) # computes distances between embeddings and concepts. The output has shape torch.Size([2, 170])
-        #probabilities = torch.softmax(x, dim=0)
-        logits = classifier.bottleneck.classifier(x) # linear classifier maps x to the classes. The output has shape torch.Size([2, 10])
-        #logits = self.classifier(features.float().to(device))
-        print("x: "+str(x))
-        return x    #     logits wenn man annimmt dass concepts die classes sind 
-    
-class ModelWrapperPredictive(nn.Module):
-    def __init__(self, classifier, clip_model, resolution):
-        super(ModelWrapperPredictive, self).__init__()
-        self.classifier = classifier
-        self.clip_model = clip_model
-        
-        # Define the preprocessing pipeline within the ModelWrapper
-        self.preprocess = transforms.Compose([
-            transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BICUBIC),
-            transforms.CenterCrop(resolution),
-            transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
-        ])
-
-    def forward(self, images):
-        images = self.preprocess(images)
         features = self.clip_model.encode_image(images)
         logits = self.classifier(features.float().to(device))
-        _, predicted = torch.max(logits, 1)
-        return predicted
+        return logits
 
 
 
@@ -102,7 +78,7 @@ resolution = 224  # specify the input resolution for your CLIP model
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
 wrapped_model.eval()
 
-predictive_model = ModelWrapperPredictive(classifier, model, resolution).to(device)
+#predictive_model = ModelWrapperPredictive(classifier, model, resolution).to(device)
 predictive_model.eval()
 
 # Integrated Gradients expects the model to return the logits directly,
@@ -161,64 +137,32 @@ def visualize_image_attr(
 cifar10_testset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transforms.ToTensor())
 test_loader = DataLoader(cifar10_testset, batch_size=2, shuffle=False)
 
-save_dir = "/data/gpfs/projects/punim2103/ig_images/5"
+save_dir = "/data/gpfs/projects/punim2103/ig_images/6"
 cifar10_classes = ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
-cat_index = sorted_concept_list.index('cat')
-blackness_index = sorted_concept_list.index('blackness')
-leg_index = sorted_concept_list.index('leg')
-flowerpot_index = sorted_concept_list.index('flowerpot')
-back_pillow_index = sorted_concept_list.index('back_pillow')
-#print(cat_index) = sorted_concept_list.index('cat')
 
 
 for batch_idx, (images, labels) in enumerate(test_loader):
-    if batch_idx == 1:
+    if batch_idx == 2:
         break
 
     # Calculate the distances and logits
     with torch.no_grad():
         distances = wrapped_model(images.to(device))
-        print("distances "+str(distances))
+        print(distances.shape)
 
-        # To get the top 6 maximum values and indices for each row (image):
-        _, top6_indices = torch.topk(distances, 6, dim=1)
+        # Sort the absolute distances and get indices of the smallest ones (closest concepts)
+        sorted_indices = torch.argsort(distances.abs(), dim=1)
 
-        for i in range(distances.shape[0]):  # Loop over each image
-            print(f"Image {i}:")
-            print(f"  True label: {cifar10_classes[labels[i]]}")  # Printing the true label of the image
-            print("Distance to cocept cat: "+str(distances[0][cat_index]))
-            print("Distance to cocept blackness: "+str(distances[0][blackness_index]))
-            print("Distance to cocept leg: "+str(distances[0][leg_index]))
-            print("Distance to cocept flowerpot: "+str(distances[0][flowerpot_index]))
-            print("Distance to cocept back_pillow: "+str(distances[0][back_pillow_index]))
-            for j in range(6):  # Loop to print top 6 concepts
-                concept_index = top6_indices[i][j].item()
-                concept_name = sorted_concept_list[concept_index]  # Retrieve the concept name using the index
-                print(f"  Concept {j+1}: {concept_name}")
-                
-    '''
-    # Sort the distances and get indices of the smallest ones (top concepts)
-    #sorted_indices = torch.argsort(distances, dim=1)
-
-    # Sort the distances to get indices of the largest ones (top concepts)
-    sorted_indices = torch.argsort(distances, dim=1, descending=True)
-
-    # Select the top 5 concept indices
-    top_concepts_indices = sorted_indices[:, :3]
+        # Select the indices of the 5 closest concepts
+        closest_concepts_indices = sorted_indices[:, :5]
 
     predicted_labels = predictive_model(images)
 
-    
-
-    # Define a black image baseline outside of the loop
-    # Define a black image baseline outside of the loop
-    black_image_baseline = 0
-
-    
+    black_image_baseline = 0  # Define a black image baseline outside of the loop
 
     for image_idx, image in enumerate(images):
         print(f"Image {batch_idx}_{image_idx}")
-        top_concepts = top_concepts_indices[image_idx]
+        top_concepts = closest_concepts_indices[image_idx]
         for rank, concept_idx in enumerate(top_concepts):
             concept = sorted_concept_list[concept_idx.item()]
             weight = distances[image_idx, concept_idx].item()
@@ -227,19 +171,17 @@ for batch_idx, (images, labels) in enumerate(test_loader):
         np_img = image.cpu().detach().numpy()
         plt.imshow(np.transpose(np_img, (1, 2, 0)))
         plt.axis('off')
-        #plt.savefig(f"{save_dir}/original_image_{batch_idx}_{image_idx}.png")
         plt.close()
 
-        for concept_idx in top_concepts_indices[image_idx]:
+        for concept_idx in closest_concepts_indices[image_idx]:
             attributions = ig.attribute(image.unsqueeze(0).to(device), baselines=black_image_baseline, target=int(concept_idx), return_convergence_delta=False, method='gausslegendre')
 
             visualize_image_attr(
-            original_image=np_img,
-            attribution=attributions,
-            sign = "positive"
+                original_image=np_img,
+                attribution=attributions,
+                sign="absolute_value"
             )
             
-            print("Saving image "+str(batch_idx)+"_"+str(image_idx)+" Concept "+str(sorted_concept_list[concept_idx.item()]) +" idx "+str(concept_idx)  )
+            print("Saving image "+str(batch_idx)+"_"+str(image_idx)+" Concept "+str(sorted_concept_list[concept_idx.item()]) +" idx "+str(concept_idx))
             plt.savefig(f"{save_dir}/attribution_map_{batch_idx}_{image_idx}_concept_{sorted_concept_list[concept_idx.item()]}_idx_{concept_idx}_TrueLabel_{labels[image_idx]}_PredLabel_{predicted_labels[image_idx]}.png")
             plt.close()
-'''

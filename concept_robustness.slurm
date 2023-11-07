@@ -19,9 +19,9 @@ source /data/gpfs/projects/punim2103/my_env/bin/activate
 cd /data/gpfs/projects/punim2103
 
 # Run your Python script with the specified parameters
-echo "Compute concept saliency maps"
+echo "Compute concept robustness"
 
 # Navigate to your directory, if needed
 
 # Run the Python script
-time srun -n 1 python3 saliency_maps_7.py
+time srun -n 1 python3 concept_robustness.py
