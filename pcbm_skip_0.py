@@ -63,8 +63,9 @@ with open(csv_path, 'w', newline='') as csvfile:
     csv_writer.writerow(["Epsilon", "Initial Accuracy", "Robust Accuracy", "Max Perturbation"])  # Header
 
     for images, labels in test_loader:
-        print("start attack for epsilon:", epsilon)
         batch += 1
+        if batch <= 58:  # Skip the first 58 batches
+            continue
         print("batch "+str(batch))
         
         images, labels = images.to(device), labels.to(device)

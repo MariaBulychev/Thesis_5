@@ -6,15 +6,12 @@ import csv
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 from autoattack import AutoAttack
-from torchvision.transforms import ToPILImage
 
 class ModelWrapper(nn.Module):
     def __init__(self, classifier, clip_model, resolution):
         super(ModelWrapper, self).__init__()
         self.classifier = classifier
         self.clip_model = clip_model
-        
-        # Define the preprocessing pipeline within the ModelWrapper
         self.preprocess = transforms.Compose([
             transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.CenterCrop(resolution),
@@ -24,24 +21,16 @@ class ModelWrapper(nn.Module):
     def forward(self, images):
         images = self.preprocess(images)
         features = self.clip_model.encode_image(images)
-        logits = self.classifier(features.float().to(device))
-        return logits
+        outputs = self.classifier(features.float().to(device))
+        return outputs
 
-
-
-# Load the model and preprocessing 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load('RN50', device)
 batch_size = 128
 
-import sys
-sys.path.append('/data/gpfs/projects/punim2103')          # Adding the main project directory
-sys.path.append('/data/gpfs/projects/punim2103/post_hoc_cbm')
-
 print("load model")
-classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt", map_location=device)
-
-resolution = 224  # specify the input resolution for your CLIP model
+classifier = torch.load('/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth', map_location=device)
+resolution = 224
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
 wrapped_model.eval()
 
@@ -54,7 +43,7 @@ epsilon = float(sys.argv[1])
 
 adversary = AutoAttack(wrapped_model, norm='Linf', eps=epsilon, version='standard', device=device)
 
-csv_path = f'/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/csv/eps_{epsilon}.csv'
+csv_path = f'/data/gpfs/projects/punim2103/results_clean/Linf/orig/csv/eps_{epsilon}.csv'
 batch = 0
 results = []
 
@@ -63,8 +52,9 @@ with open(csv_path, 'w', newline='') as csvfile:
     csv_writer.writerow(["Epsilon", "Initial Accuracy", "Robust Accuracy", "Max Perturbation"])  # Header
 
     for images, labels in test_loader:
-        print("start attack for epsilon:", epsilon)
         batch += 1
+        if batch <= 45:  # Skip the first 58 batches
+            continue
         print("batch "+str(batch))
         
         images, labels = images.to(device), labels.to(device)
@@ -76,11 +66,13 @@ with open(csv_path, 'w', newline='') as csvfile:
 
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=images.shape[0])
 
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/images/eps_{epsilon}_batch_{batch}_adv.pt')
+        torch.save(x_adv, f'/data/gpfs/projects/punim2103/results_clean/Linf/orig/images/eps_{epsilon}_batch_{batch}_adv.pt')
 
-        results.append([100 * initial_acc, 100 * robust_accuracy, res.item()])
+        results.append([100 * initial_acc, 100* robust_accuracy, res.item()])
         csv_writer.writerow([epsilon, 100 * initial_acc, 100 * robust_accuracy, res.item()])
-                
+
+        print("done")
+        
 
     # Calculate and write the mean values at the end of the csv
     mean_values = [epsilon] + [sum(col)/len(col) for col in zip(*results)]

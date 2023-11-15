@@ -68,8 +68,11 @@ class ModelWrapper(nn.Module):
 
     def forward(self, images):
         images = self.preprocess(images)
+        print(f'images {images.shape}')
         features = self.clip_model.encode_image(images)
+        print(f'features {features.shape}')
         out, x = self.classifier(features.float().to(device), return_dist = True)
+        print(f'out {out.shape}, x {x.shape}')
         return out, x
     
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -137,6 +140,8 @@ for i, (data, filename) in enumerate(zip(test_loader, adversarial_files)):
     _, adv_influential_indices = torch.topk(adv_dist, 50, largest=False)
     adv_concepts = [[sorted_concept_list[idx] for idx in batch] for batch in adv_influential_indices]
 
+    break
+    '''
     # Compare concepts and store results including correct and predicted labels
     for j in range(adversarial_images.size(0)):
         correct_label = idx_to_class[labels[j].item()]
@@ -177,3 +182,6 @@ results_df = pd.DataFrame(results, columns=[
     'L2 Distance', 'Linf Distance', 'Top-5', 'Top-10', 'Top-15', 'Top-20', 'Top-50'
 ])
 results_df.to_csv("/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/csv/concept_robustness_1e05.csv", index=False)
+
+
+'''

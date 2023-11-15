@@ -52,14 +52,11 @@ def load_adversarial_images(batch_file):
     adversarial_images = torch.load(batch_file, map_location=device)
     return adversarial_images
 
-# Load the model 
 class ModelWrapper(nn.Module):
     def __init__(self, classifier, clip_model, resolution):
         super(ModelWrapper, self).__init__()
         self.classifier = classifier
         self.clip_model = clip_model
-        
-        # Define the preprocessing pipeline within the ModelWrapper
         self.preprocess = transforms.Compose([
             transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.CenterCrop(resolution),
@@ -69,18 +66,19 @@ class ModelWrapper(nn.Module):
     def forward(self, images):
         images = self.preprocess(images)
         features = self.clip_model.encode_image(images)
-        out, x = self.classifier(features.float().to(device), return_dist = True)
-        return out, x
-    
+        outputs = self.classifier(features.float().to(device))
+        return outputs
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load('RN50', device)
-classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt", map_location=device)
-
 batch_size = 128
-resolution = 224  # specify the input resolution for your CLIP model
 
+print("load model")
+classifier = torch.load('/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth', map_location=device)
+resolution = 224
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
 wrapped_model.eval()
+
 
 # Load CIFAR-10 testset
 test_dataset = datasets.CIFAR10(root="./data", train=False, transform=transforms.ToTensor())
@@ -89,7 +87,7 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
 
 # Load the adversarial images
-adversarial_dir = "/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/images/eps_1e-05"
+adversarial_dir = "/data/gpfs/projects/punim2103/results_clean/Linf/orig/images/eps_1e-05"
 #adversarial_batches = [os.path.join(adversarial_dir, file) for file in os.listdir(adversarial_dir) if file.endswith('_adv.pt')]
 adversarial_files = sorted(os.listdir(adversarial_dir))
 
@@ -102,16 +100,16 @@ def compare_concepts(original_concepts, adversarial_concepts, top_n):
 results = []
 batch = 0
 
+# Iterate over the test_loader
+for i, (orig_images, labels) in enumerate(test_loader):
+    print(f"Processing batch {i+1}")
 
+    orig_images = orig_images.to(device)
+    labels = labels.to(device)
 
-# Iterate over both the original and adversarial images simultaneously
-for i, (data, filename) in enumerate(zip(test_loader, adversarial_files)):
-    print(batch)
-    orig_images, labels = data
-    orig_images, labels = orig_images.to(device), labels.to(device)
-    #batch_file = os.path.join(adversarial_dir, filename)
-    #adversarial_images = load_adversarial_images(batch_file).to(device)
-    #print(adversarial_images.shape)
+    # Get the model outputs for the original images
+    orig_outputs = wrapped_model(orig_images)
+    _, orig_predictions = torch.max(orig_outputs, 1)
 
     # Load adversarial images for the current batch
     batch_filename = f"eps_1e-05_batch_{i+1}_adv.pt"  # Construct the filename
@@ -121,31 +119,15 @@ for i, (data, filename) in enumerate(zip(test_loader, adversarial_files)):
     # Make sure the shapes match, otherwise, there is a batch size mismatch
     assert adversarial_images.shape[0] == orig_images.shape[0], "Batch sizes do not match."
 
-    # Get the model outputs for the original images
-    orig_outputs, orig_dist = wrapped_model(orig_images)
-    _, orig_predictions = torch.max(orig_outputs, 1)
-
-    # Get the top 50 influential concepts for original images
-    _, orig_influential_indices = torch.topk(orig_dist, 50, largest=False)
-    orig_concepts = [[sorted_concept_list[idx] for idx in batch] for batch in orig_influential_indices]
-
     # Get the model outputs for the adversarial images
-    adv_outputs, adv_dist = wrapped_model(adversarial_images)
+    adv_outputs = wrapped_model(adversarial_images)
     _, adv_predictions = torch.max(adv_outputs, 1)
 
-    # Get the top 50 influential concepts for adversarial images
-    _, adv_influential_indices = torch.topk(adv_dist, 50, largest=False)
-    adv_concepts = [[sorted_concept_list[idx] for idx in batch] for batch in adv_influential_indices]
-
     # Compare concepts and store results including correct and predicted labels
-    for j in range(adversarial_images.size(0)):
+    for j in range(orig_images.size(0)):
         correct_label = idx_to_class[labels[j].item()]
         predicted_label_orig = idx_to_class[orig_predictions[j].item()]
         predicted_label_adv = idx_to_class[adv_predictions[j].item()]
-
-        # Compute L2 and Linf norm between concept vectors
-        l2_distance = torch.norm(orig_dist[j] - adv_dist[j], p=2)
-        linf_distance = torch.norm(orig_dist[j] - adv_dist[j], p=float('inf'))
 
         # Initialize a dictionary to store the results for this image
         result = {
@@ -153,27 +135,10 @@ for i, (data, filename) in enumerate(zip(test_loader, adversarial_files)):
             'Correct': correct_label,
             'Predicted Orig': predicted_label_orig,
             'Predicted Adv': predicted_label_adv,
-            'L2 Distance': l2_distance.item(),
-            'Linf Distance': linf_distance.item(),
-            'Top-5': None,
-            'Top-10': None,
-            'Top-15': None,
-            'Top-20': None,
-            'Top-50': None
         }
-
-        # Calculate the percentage of overlap for top N concepts
-        for top_n in [5, 10, 15, 20, 50]:
-            percent = compare_concepts(orig_concepts[j], adv_concepts[j], top_n)
-            result[f'Top-{top_n}'] = percent
 
         results.append(result)
 
-    batch += 1
-
 # Convert results to a DataFrame and save as CSV
-results_df = pd.DataFrame(results, columns=[
-    'Image Index', 'Correct', 'Predicted Orig', 'Predicted Adv',
-    'L2 Distance', 'Linf Distance', 'Top-5', 'Top-10', 'Top-15', 'Top-20', 'Top-50'
-])
-results_df.to_csv("/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/csv/concept_robustness_1e05.csv", index=False)
+results_df = pd.DataFrame(results)
+results_df.to_csv("/data/gpfs/projects/punim2103/results_clean/Linf/orig/csv/eps_1e-05_imagewise.csv", index=False)

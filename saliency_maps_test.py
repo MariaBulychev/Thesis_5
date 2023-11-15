@@ -24,9 +24,9 @@ class ModelWrapper(nn.Module):
 
     def forward(self, images):
         images = self.preprocess(images)
-        features = self.clip_model.encode_image(images) # embeddings
-        x = classifier.bottleneck.compute_dist(features)
-        logits = classifier.bottleneck.classifier(x)
+        features = self.clip_model.encode_image(images) # produces embeddings
+        x = classifier.bottleneck.compute_dist(features) # computes distances between embeddings and concepts. The output has shape torch.Size([2, 170])
+        logits = classifier.bottleneck.classifier(x) # linear classifier maps x to the classes. The output has shape torch.Size([2, 10])
         #logits = self.classifier(features.float().to(device))
         return x, logits
 

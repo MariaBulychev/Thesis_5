@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from captum.attr import visualization as viz
 import sys
+import os
 
 sys.path.append('/data/gpfs/projects/punim2103')          # Adding the main project directory
 sys.path.append('/data/gpfs/projects/punim2103/post_hoc_cbm')
@@ -137,6 +138,12 @@ class ModelWrapper_2(nn.Module):
         out, x = self.classifier(features.float().to(device), return_dist = True)
         return x
     
+# Function to load adversarial images
+def load_adversarial_images(batch_file):
+    # Load the tensor from the .pt file
+    adversarial_images = torch.load(batch_file, map_location=device)
+    return adversarial_images
+    
     
     
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -156,8 +163,12 @@ test_dataset = datasets.CIFAR10(root="./data", train=False, transform=transforms
 test_subset = Subset(test_dataset, range(128))
 test_loader = DataLoader(test_subset, batch_size=batch_size)
 
+# Load the adversarial images
+adversarial_dir = "/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/images/eps_0.001"
+#adversarial_batches = [os.path.join(adversarial_dir, file) for file in os.listdir(adversarial_dir) if file.endswith('_adv.pt')]
+adversarial_files = sorted(os.listdir(adversarial_dir))
 
-save_dir = "/data/gpfs/projects/punim2103/ig_images/meaningful_concepts_orig_black"
+save_dir = "/data/gpfs/projects/punim2103/ig_images/meaningful_concepts_adversarial_white_2"
 ig = IntegratedGradients(wrapped_model_2)
 
 
@@ -167,12 +178,25 @@ for i, (images, labels) in enumerate(test_loader):
     # Get the distances for the batch
 
     images, labels = images.to(device), labels.to(device)
-    outputs, dist = wrapped_model(images)  # Shape [batch_size, num_concepts]
+    #outputs, dist = wrapped_model(images)  # Shape [batch_size, num_concepts]
     
+    
+    # Load adversarial images for the current batch
+    batch_filename = f"eps_0.001_batch_{i+1}_adv.pt"  # Construct the filename
+    batch_file = os.path.join(adversarial_dir, batch_filename)
+    adversarial_images = load_adversarial_images(batch_file).to(device)
+
+    outputs, dist = wrapped_model(adversarial_images)
+
     # Convert the predicted and true labels to class names
     _, predicted = torch.max(outputs, 1)
     predicted_labels = [idx_to_class[label.item()] for label in predicted]
     true_labels = [idx_to_class[label.item()] for label in labels]
+
+
+    # Make sure the shapes match, otherwise, there is a batch size mismatch
+    
+    assert adversarial_images.shape[0] == images.shape[0], "Batch sizes do not match."
 
     # Process each image in the batch
     for j in range(dist.size(0)):  # Iterate over the images in the batch
@@ -199,15 +223,16 @@ for i, (images, labels) in enumerate(test_loader):
         # Print matched concepts from the important_concepts list
         print(f"Matched Important Concepts ({len(matched_concepts)}):")
         # Calculate and plot attributions for matched concepts
+
         for concept_name in matched_concepts:
             concept_idx = torch.tensor(sorted_concept_list.index(concept_name))
             concept_distance = distances[concept_idx].item()
 
             # Calculate the attribution for the current concept
-            attributions = ig.attribute(images[j].unsqueeze(0), baselines=0, target=int(concept_idx), return_convergence_delta=False, method='gausslegendre')
+            attributions = ig.attribute(adversarial_images[j].unsqueeze(0), baselines=1, target=int(concept_idx), return_convergence_delta=False, method='gausslegendre')
             
             # Convert the preprocessed image to numpy format for visualization
-            np_img = images[j].cpu().detach().numpy()
+            np_img = adversarial_images[j].cpu().detach().numpy()
             
             # Visualize and save the attribution image
             _, axis = visualize_image_attr(

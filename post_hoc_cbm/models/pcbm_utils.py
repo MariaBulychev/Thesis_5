@@ -31,6 +31,8 @@ class PosthocLinearCBM(nn.Module):
 
     def compute_dist(self, emb):
         # Computing the geometric margin to the decision boundary specified by CAV.
+        self.cavs = self.cavs.type(torch.float64)
+        emb = emb.type(torch.float64)
         margins = (torch.matmul(self.cavs, emb.T) +
            self.intercepts) / (self.norms)
         return margins.T
