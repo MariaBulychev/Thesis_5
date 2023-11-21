@@ -12,6 +12,7 @@ from training_tools import load_or_compute_projections
 import clip
 from torchvision import datasets, transforms
 from sklearn.linear_model import SGDClassifier
+import torch.nn as nn
 
 # Define the configuration for the model
 def config():
@@ -27,7 +28,7 @@ def config():
     parser.add_argument("--alpha", default=0.99, type=float, help="Sparsity coefficient for elastic net.")
     parser.add_argument("--lam", default=1e-5, type=float, help="Regularization strength.")
     parser.add_argument("--lr", default=1e-3, type=float)
-    parser.add_argument("--num-epochs", default=15, type=int)
+    parser.add_argument("--num-epochs", default=30, type=int)
     parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--weight-decay", default=1e-4, type=float)
     return parser.parse_args()
@@ -46,28 +47,44 @@ def collect_embeddings_and_labels(loader, clip_model, pcbm, preprocess, device):
             all_labels.append(labels.cpu())
             all_projections.append(projections.cpu())
     return torch.cat(all_embeddings), torch.cat(all_projections), torch.cat(all_labels)
+
+class ModelWrapper(nn.Module):
+    def __init__(self, pcbm, clip_model, resolution):
+        super(ModelWrapper, self).__init__()
+        self.pcbm = pcbm
+        self.clip_model = clip_model
         
+        # Define the preprocessing pipeline within the ModelWrapper
+        self.preprocess = transforms.Compose([
+            transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(resolution),
+            transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+        ])
+
+    def forward(self, images):
+        #images = self.preprocess(images)
+        #print(images.shape)
+        features = self.clip_model.encode_image(images)
+        #print(features.shape)
+        out = self.pcbm(features.float().to(args.device), return_dist = False)
+        #print(out.shape, x.shape)
+        return out
+
+
 # Function to evaluate the model
-def evaluate(model, clip_model, test_loader, criterion, preprocess, device):
-    model.eval()
-    clip_model.eval()
-    clip_model.visual.eval()
+def evaluate(wrapped_model, test_loader, criterion, preprocess, device):
+    wrapped_model.eval()
     total_loss = 0
     all_predictions = []
     all_labels = []
 
     with torch.no_grad():
         for inputs, labels in test_loader:
-            inputs = preprocess(inputs).to(device)
+            #inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
-
-            # Forward pass through CLIP model
-            # features = clip_model(inputs)
-            features = clip_model.encode_image(inputs)
-            features = features.type(torch.float64)
-
+    
             # Forward pass through PCBM
-            outputs = model(features)
+            outputs = wrapped_model(inputs)
 
             # Compute loss
             loss = criterion(outputs, labels)
@@ -104,7 +121,7 @@ def main(args):
 
     
     # Load dataset
-    preprocess = transforms.ToTensor()
+    #preprocess = transforms.ToTensor()
     train_loader, test_loader, idx_to_class, classes = get_dataset(args, preprocess)
 
     # Load concept bank
@@ -123,7 +140,7 @@ def main(args):
 
     # Define optimizer and loss function
     # Define optimizers for CLIP and PCBM
-    clip_optimizer = torch.optim.Adam(clip_model.visual.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    
     
     #clip_optimizer = torch.optim.SGD(clip_model.visual.parameters(),
                                     #lr=args.lr,
@@ -145,56 +162,60 @@ def main(args):
         ])
     
     #train_embeddings, train_projections, train_labels = collect_embeddings_and_labels(train_loader, clip_model, pcbm, preprocess, args.device)
+    
+    # Step 1: Compute embeddings for the entire dataset
+    train_embeddings, train_projections, train_labels = collect_embeddings_and_labels(train_loader, clip_model, pcbm, preprocess, args.device)
+
+    # Step 2: Fit the classifier
+    classifier = SGDClassifier(random_state=args.seed, loss="log_loss",
+                            alpha=args.lam, l1_ratio=args.alpha, verbose=0,
+                            penalty="elasticnet", max_iter=10000)
+    classifier.fit(train_projections, train_labels)
+
+    # Step 3: Update PCBM weights
+    pcbm.set_weights(weights=classifier.coef_, bias=classifier.intercept_)
+    pcbm = pcbm.to(args.device)
+
+    wrapped_model = ModelWrapper(pcbm, clip_model, resolution).to(device)
+    wrapped_model.train()
+
+    val_loss, val_accuracy = evaluate(wrapped_model, test_loader, criterion, preprocess, args.device)
+
+    # Print epoch results
+    print(f"Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
+'''
+    #optimizer = torch.optim.Adam(wrapped_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.SGD(wrapped_model.parameters(),
+                                    lr=args.lr,
+                                    momentum=args.momentum,
+                                    weight_decay=args.weight_decay)
 
     
 
-    # Training and evaluation loop
+    # Training and evaluation loop for the wrapped model 
     for epoch in range(args.num_epochs):
         print(f'Epoch {epoch+1}/{args.num_epochs}')
 
-        # Step 1: Compute embeddings for the entire dataset
-        train_embeddings, train_projections, train_labels = collect_embeddings_and_labels(train_loader, clip_model, pcbm, preprocess, args.device)
-
-        # Step 2: Fit the classifier
-        classifier = SGDClassifier(random_state=args.seed, loss="log_loss",
-                               alpha=args.lam, l1_ratio=args.alpha, verbose=0,
-                               penalty="elasticnet", max_iter=10000)
-        classifier.fit(train_projections, train_labels)
-
-        # Step 3: Update PCBM weights
-        pcbm.set_weights(weights=classifier.coef_, bias=classifier.intercept_)
-        pcbm = pcbm.to(args.device)
+        
 
         # Step 4: Training loop for CLIP model
         for inputs, labels in train_loader:
-            inputs = preprocess(inputs).to(device)
+            # inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
 
-            #step = num_batches_per_epoch * epoch + i
-            #scheduler(step)
-            clip_optimizer.zero_grad()
-
-            # Forward pass through CLIP model
-            features = clip_model.encode_image(inputs)
-            features = features.to(torch.float64)
+            optimizer.zero_grad()
 
             # Forward pass through PCBM
-            out = pcbm(features)
-            #_, predictions = torch.max(out, 1)
-
-            # Calculate accuracy
-            #correct_predictions = (predictions == labels).sum()
-            #train_accuracy = correct_predictions.float() / labels.size(0) * 100
-            #print(f"Train Accuracy PCBM: {train_accuracy:.4f}")
+            out = wrapped_model(inputs)
 
             # Backpropagation
             
             loss = criterion(out, labels)
             loss.backward()        
-            clip_optimizer.step()
+            optimizer.step()
 
         print("Evaluating...")
-        val_loss, val_accuracy = evaluate(pcbm, clip_model, test_loader, criterion, preprocess, args.device)
+        val_loss, val_accuracy = evaluate(wrapped_model, test_loader, criterion, preprocess, args.device)
 
         # Print epoch results
         print(f"Epoch {epoch+1}/{args.num_epochs}, Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
@@ -207,7 +228,7 @@ def main(args):
         }, final_model_path)
 
         print(f"Model saved to {final_model_path}")
-
+'''
 
 if __name__ == "__main__":
     args = config()

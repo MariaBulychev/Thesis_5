@@ -28,10 +28,22 @@ class ModelWrapper(nn.Module):
         return logits
 
 
+# To load the finetuned model 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+#checkpoint_path = '/data/gpfs/projects/punim2103/joint_training/final_model_finetuned_-1_cliplayers_1e-07_clip_lr_1e-07_pcbm_lr_acc 8362.pth'
+#checkpoint = torch.load(checkpoint_path, map_location = device)
+# Load the CLIP model state_dict
+#clip_model_state_dict = checkpoint['clip_model_state_dict']
+# Load the PCBM model state_dict
+#pcbm_model_state_dict = checkpoint['pcbm_model_state_dict']
+
+
 
 # Load the model and preprocessing 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+
 model, preprocess = clip.load('RN50', device)
+#model.load_state_dict(clip_model_state_dict)
+
 batch_size = 128
 
 import sys
@@ -40,6 +52,10 @@ sys.path.append('/data/gpfs/projects/punim2103/post_hoc_cbm')
 
 print("load model")
 classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt", map_location=device)
+#classifier = torch.load('/data/gpfs/projects/punim2103/trained_pcbm.ckpt', map_location = device)
+# Load finetuned pcbm
+#classifier.load_state_dict(pcbm_model_state_dict)
+ 
 
 resolution = 224  # specify the input resolution for your CLIP model
 wrapped_model = ModelWrapper(classifier, model, resolution).to(device)
@@ -52,9 +68,9 @@ test_loader = DataLoader(test_subset, batch_size=batch_size)
 
 epsilon = float(sys.argv[1])
 
-adversary = AutoAttack(wrapped_model, norm='Linf', eps=epsilon, version='standard', device=device)
+adversary = AutoAttack(wrapped_model, norm='L2', eps=epsilon, version='standard', device=device)
 
-csv_path = f'/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/csv/eps_{epsilon}.csv'
+csv_path = f'/data/gpfs/projects/punim2103/results_clean/L2/hpcbm/csv/eps_{epsilon}.csv'
 batch = 0
 results = []
 
@@ -76,7 +92,7 @@ with open(csv_path, 'w', newline='') as csvfile:
 
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=images.shape[0])
 
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/images/eps_{epsilon}_batch_{batch}_adv.pt')
+        torch.save(x_adv, f'/data/gpfs/projects/punim2103/results_clean/L2/hpcbm/images/eps_{epsilon}_batch_{batch}_adv.pt')
 
         results.append([100 * initial_acc, 100 * robust_accuracy, res.item()])
         csv_writer.writerow([epsilon, 100 * initial_acc, 100 * robust_accuracy, res.item()])

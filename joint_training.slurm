@@ -2,7 +2,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --time=0-1:00:00
-#SBATCH -p gpu-a100
+#SBATCH -p gpu-a100-short
 #SBATCH --gres=gpu:1   
 
 # Load required modules
@@ -17,4 +17,4 @@ source /data/gpfs/projects/punim2103/my_env/bin/activate
 
 # Run your Python script with the specified parameters
 echo "Running learn_concepts_dataset.py"
-time srun -n 1 python3 train_pcbm_joint_3.py --concept-bank=/data/gpfs/projects/punim2103/results/broden_clip:RN50_0.1_50.pkl --dataset="cifar10" --backbone-name="clip:RN50" --out-dir=/data/gpfs/projects/punim2103/joint_training --lam=2e-4 
+time srun -n 1 python3 train_pcbm_joint_finetuning.py --concept-bank=/data/gpfs/projects/punim2103/results/broden_clip:RN50_0.1_50.pkl --dataset="cifar10" --backbone-name="clip:RN50" --out-dir=/data/gpfs/projects/punim2103/joint_training --lam=2e-4 --last_num_ft=3  --num-epochs=20 --clip-learning-rate=1e-3  

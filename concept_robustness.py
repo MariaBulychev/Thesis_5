@@ -16,6 +16,8 @@ import sys
 sys.path.append('/data/gpfs/projects/punim2103')          # Adding the main project directory
 sys.path.append('/data/gpfs/projects/punim2103/post_hoc_cbm')
 
+sys.path.append('/data/gpfs/projects/punim2103/joint_training/finetuning_full_models') # Adding directory containing the model
+
 concept_list = concept_list = [
     "air_conditioner", "basket", "blueness", "bumper", "ceramic", "countertop", "drinking_glass", 
     "fireplace", "greenness", "jar", "minibike", "pack", "plant", "water", "airplane", "bathroom_s", 
@@ -68,13 +70,18 @@ class ModelWrapper(nn.Module):
 
     def forward(self, images):
         images = self.preprocess(images)
+        print(images.shape)
         features = self.clip_model.encode_image(images)
+        print(features.shape)
         out, x = self.classifier(features.float().to(device), return_dist = True)
+        print(out.shape, x.shape)
         return out, x
     
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load('RN50', device)
-classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt", map_location=device)
+model = torch.load("/data/gpfs/projects/punim2103/joint_training/finetuning_full_models/clip_model.pth", map_location=device)
+#classifier = torch.load("/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt", map_location=device)
+classifier = torch.load("/data/gpfs/projects/punim2103/joint_training/finetuning_full_models/pcbm.pth", map_location=device)
 
 batch_size = 128
 resolution = 224  # specify the input resolution for your CLIP model
@@ -89,7 +96,7 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
 
 # Load the adversarial images
-adversarial_dir = "/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/images/eps_1e-05"
+adversarial_dir = "/data/gpfs/projects/punim2103/results_clean/Linf/finetuned/images"
 #adversarial_batches = [os.path.join(adversarial_dir, file) for file in os.listdir(adversarial_dir) if file.endswith('_adv.pt')]
 adversarial_files = sorted(os.listdir(adversarial_dir))
 
@@ -114,7 +121,7 @@ for i, (data, filename) in enumerate(zip(test_loader, adversarial_files)):
     #print(adversarial_images.shape)
 
     # Load adversarial images for the current batch
-    batch_filename = f"eps_1e-05_batch_{i+1}_adv.pt"  # Construct the filename
+    batch_filename = f"eps_0.001_batch_{i+1}_adv.pt"  # Construct the filename
     batch_file = os.path.join(adversarial_dir, batch_filename)
     adversarial_images = load_adversarial_images(batch_file).to(device)
 
@@ -170,10 +177,12 @@ for i, (data, filename) in enumerate(zip(test_loader, adversarial_files)):
         results.append(result)
 
     batch += 1
+    if batch == 21:
+        break
 
 # Convert results to a DataFrame and save as CSV
 results_df = pd.DataFrame(results, columns=[
     'Image Index', 'Correct', 'Predicted Orig', 'Predicted Adv',
     'L2 Distance', 'Linf Distance', 'Top-5', 'Top-10', 'Top-15', 'Top-20', 'Top-50'
 ])
-results_df.to_csv("/data/gpfs/projects/punim2103/results_clean/Linf/hpcbm/csv/concept_robustness_1e05.csv", index=False)
+results_df.to_csv("/data/gpfs/projects/punim2103/joint_training/finetuning_full_models/concept_robustness_test.csv", index=False)
