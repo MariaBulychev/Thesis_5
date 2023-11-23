@@ -42,9 +42,9 @@ test_loader = DataLoader(test_subset, batch_size=batch_size)
 
 epsilon = float(sys.argv[1])
 
-adversary = AutoAttack(wrapped_model, norm='Linf', eps=epsilon, version='standard', device=device)
+adversary = AutoAttack(wrapped_model, norm='L2', eps=epsilon, version='standard', device=device)
 
-csv_path = f'/data/gpfs/projects/punim2103/results_clean/Linf/orig/csv/eps_{epsilon}.csv'
+csv_path = f'/data/gpfs/projects/punim2103/results_clean/L2/orig/csv/eps_{epsilon}.csv'
 batch = 0
 results = []
 
@@ -55,14 +55,8 @@ with open(csv_path, 'w', newline='') as csvfile:
     for images, labels in test_loader:
         batch += 1
         print("batch "+str(batch))
-        if batch <= 42:  # Skip the first 58 batches
-            continue
-
-        if batch == 44:
-            continue
-
-        if batch >= 46:
-            break
+        #if batch <= 42:  # Skip the first 58 batches
+            #continue
         
         images, labels = images.to(device), labels.to(device)
 
@@ -73,7 +67,7 @@ with open(csv_path, 'w', newline='') as csvfile:
 
         x_adv, robust_accuracy, res = adversary.run_standard_evaluation(images, labels, bs=images.shape[0])
 
-        torch.save(x_adv, f'/data/gpfs/projects/punim2103/results_clean/Linf/orig/images/eps_{epsilon}_batch_{batch}_adv.pt')
+        torch.save(x_adv, f'/data/gpfs/projects/punim2103/results_clean/L2/orig/images/eps_{epsilon}_batch_{batch}_adv.pt')
 
         results.append([100 * initial_acc, 100* robust_accuracy, res.item()])
         csv_writer.writerow([epsilon, 100 * initial_acc, 100 * robust_accuracy, res.item()])

@@ -62,34 +62,21 @@ def cosine_lr(optimizer, base_lr, warmup_length, steps):
         return lr
     return _lr_adjuster
 
-# Adversarial stuff 
-def refine_classname(class_names):
-    for i, class_name in enumerate(class_names):
-        class_names[i] = class_name.lower().replace('_', ' ').replace('-', ' ').replace('/', ' ')
-    return class_names
+class CLIPLinearProbe(nn.Module):
+    def __init__(self, clip_model, classifier):
+        super().__init__()
+        self.clip_model = clip_model
+        self.linear = classifier # 10 classes for CIFAR-10
 
-class NullPrompter(nn.Module):
-    def __init__(self):
-        super(NullPrompter, self).__init__()
-        pass
-
-    def forward(self, x):
-        return x
-    
-class TokenPrompter(nn.Module):
-    def __init__(self, prompt_len) -> None:
-        super(TokenPrompter, self).__init__()
-
-        self.prompt = nn.Parameter(torch.randn([1, prompt_len, 768]))
-    
-    def forward(self):
-        return self.prompt
+    def forward(self, images):
+        with torch.no_grad():  # Freeze CLIP's weights
+            image_features = self.clip_model.encode_image(images)
+        return self.linear(image_features)
 
 
 # Function to evaluate the model
-def evaluate(clip_model, pcbm, test_loader, criterion, preprocess, device):
-    clip_model.eval()
-    pcbm.eval()
+def evaluate(probe_model, test_loader, criterion, preprocess, device):
+    probe_model.eval()
     total_loss = 0
     all_predictions = []
     all_labels = []
@@ -99,9 +86,8 @@ def evaluate(clip_model, pcbm, test_loader, criterion, preprocess, device):
             inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
     
-            # Forward pass through PCBM
-            features = clip_model.encode_image(inputs)
-            outputs = pcbm(features.float().to(args.device), return_dist = False)
+            # Forward pass 
+            outputs = probe_model(inputs)
 
             # Compute loss
             loss = criterion(outputs, labels)
@@ -119,7 +105,7 @@ def evaluate(clip_model, pcbm, test_loader, criterion, preprocess, device):
 # Main function
 def main(args):
     # Define the save directory
-    save_dir = "/data/gpfs/projects/punim2103/joint_training/finetuning_2"
+    save_dir = "/data/gpfs/projects/punim2103/joint_training/finetuning_clip"
     # Ensure the save directory exists
     os.makedirs(save_dir, exist_ok=True)
 
@@ -129,31 +115,18 @@ def main(args):
     # Load CLIP model
     clip_model, preprocess = clip.load('RN50', device, jit=False) #Must set jit=False for training
     clip_model = clip_model.to(args.device)
-    convert_models_to_fp32(clip_model) 
+    classifier = torch.load('/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth', map_location=device)
+    probe_model = CLIPLinearProbe(clip_model, classifier).to(device)
+    convert_models_to_fp32(probe_model) 
     
-
-
-    # Load PCBM
-    pcbm = torch.load('/data/gpfs/projects/punim2103/train_results/pcbm_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt', map_location=device)
-    convert_models_to_fp32(pcbm) 
-    
-    for param in pcbm.trainable_params():
-        param.requires_grad = True
-
+    # CIFAR-10 class names to generate CLIP text
+    class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
     # Load Datasets
     train_dataset = datasets.CIFAR10(root="/data/gpfs/projects/punim2103/data", train=True, transform=transforms.ToTensor())
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
     test_dataset = datasets.CIFAR10(root="/data/gpfs/projects/punim2103/data", train=False, transform=transforms.ToTensor())
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, drop_last=True)
-
-    class_names = train_dataset.classes
-    class_names = refine_classname(class_names)
-    template = 'This is a photo of a {}'
-    texts_train = [template.format(label) for label in class_names]
-
-    #texts_list = []
-
 
 
     # Define preprocessing suitable for CLIP 
@@ -168,20 +141,18 @@ def main(args):
 
     # Define optimizers and criterion
     if args.last_num_ft == -1:
-        clip_optimizer = torch.optim.SGD(clip_model.visual.parameters(),
+        clip_optimizer = torch.optim.SGD([{'params': probe_model.clip_model.parameters()},  # Parameters of the visual part
+                                          {'params': probe_model.linear.parameters()}],  # Parameters of the linear layer
                                     lr=args.clip_learning_rate,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
     else:
-        clip_optimizer = torch.optim.SGD(list(clip_model.visual.parameters())[-args.last_num_ft:],
+        clip_optimizer = torch.optim.SGD([{'params': list(probe_model.clip_model.parameters())[-args.last_num_ft:]},  # Parameters of the visual part
+                                          {'params': probe_model.linear.parameters()}],  # Parameters of the linear layer
                                     lr=args.clip_learning_rate,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
     
-    pcbm_optimizer = torch.optim.SGD(pcbm.trainable_params(),
-                                    lr=args.pcbm_learning_rate,
-                                    momentum=args.momentum,
-                                    weight_decay=args.weight_decay)    
 
     criterion = torch.nn.CrossEntropyLoss().to(device)
 
@@ -191,88 +162,58 @@ def main(args):
     # Define step scheduler 
     total_steps = len(train_loader) * args.num_epochs
     clip_scheduler = cosine_lr(clip_optimizer, args.clip_learning_rate, args.warmup, total_steps)
-    pcbm_scheduler = cosine_lr(pcbm_optimizer, args.pcbm_learning_rate, args.warmup, total_steps)
     
 
     # Evaluate before training
-    val_loss, val_accuracy = evaluate(clip_model, pcbm, test_loader, criterion, preprocess, args.device)
+    val_loss, val_accuracy = evaluate(probe_model, test_loader, criterion, preprocess, args.device)
     print(f"Evaluation before training: Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
 
     #  Switch to train mode
-    clip_model.visual.train()
-    pcbm.train()
-
-    prompter = NullPrompter()  # .to(device)
-    add_prompter = TokenPrompter(add_prompt_len)  # .to(device)
-    model_text, model_image = None, None
-    alpha = args.train_stepsize
+    probe_model.train()
     
     # Training
     for epoch in range(args.num_epochs):
         print(f'Epoch {epoch+1}/{args.num_epochs}')
         batch = 0
 
-        
 
         # Step 4: Training loop for CLIP model
         for inputs, labels in train_loader:
             num_batches_per_epoch = len(train_loader)
             step = num_batches_per_epoch * epoch + batch
             clip_scheduler(step)
-            pcbm_scheduler(step)
 
             
             clip_optimizer.zero_grad()
-            pcbm_optimizer.zero_grad()
 
             inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
 
-            # Needed for adversarial attack
-            text_tokens = clip.tokenize(texts_train).to(device)
-
-            # Add adversarial attack
-            with autocast():                
-                delta = attack_pgd(prompter, model, model_text, model_image, add_prompter, criterion, inputs,
-                                labels, text_tokens, alpha, attack_iters, 'l_inf', epsilon=args.train_eps)
-                # print('delta', delta.min(), delta.max())
-
-                tmp = preprocess(inputs + delta)
-                
-
-                prompted_images = prompter(tmp)
-            prompt_token = None
-
-            
+            # Forward pass
             with autocast():           
-                features = clip_model.encode_image(inputs)
-                features = features.to(device) #features.float().to(device)
-                outputs = pcbm(features)
+                outputs = probe_model(inputs)
                 loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
 
             scaler.step(clip_optimizer)
-            scaler.step(pcbm_optimizer)
             scaler.update()
 
             batch += 1
 
         print("Evaluating...")
-        val_loss, val_accuracy = evaluate(clip_model, pcbm, test_loader, criterion, preprocess, args.device)
+        val_loss, val_accuracy = evaluate(probe_model, test_loader, criterion, preprocess, args.device)
 
         # Print epoch results
         print(f"Epoch {epoch+1}/{args.num_epochs}, Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
-    # Save the final model
+    # Save the final model 
     final_model_path = os.path.join(save_dir, f'final_model_finetuned_{args.last_num_ft}_cliplayers_{args.clip_learning_rate}_clip_lr_{args.pcbm_learning_rate}_pcbm_lr.pth')
     torch.save({
-        #'wrapped_model_state_dict': wrapped_model.state_dict(),
-        'clip_model_state_dict': clip_model.state_dict(),
-        'pcbm_model_state_dict': pcbm.state_dict(),
+        'clip_model_state_dict': probe_model.clip_model.state_dict(),
+        'linear_model_state_dict': probe_model.linear.state_dict(),
     }, final_model_path)
-
     print(f"Model saved to {final_model_path}")
 
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=0-1:00:00
-#SBATCH -p gpu-a100-short    
+#SBATCH --time=0-7:00:00
+#SBATCH -p gpu-a100    
 #SBATCH --gres=gpu:1        
 
 # Load required modules
@@ -21,4 +21,4 @@ echo "Running autoattack"
 # Navigate to your directory, if needed
 
 # Run the Python scripts
-srun -n 1 python3 run_autoattack_lin_prob_var_eps_orig.py 0.0005 
+srun -n 1 python3 run_autoattack_lin_prob_var_eps_orig.py 0.01 

@@ -28,4 +28,11 @@ joint_training/
 
 multimodal/
 
+ZSRobust/models
+ZSRobust/replace
+ZSRobust/save
+ZSRobust/__pycache__
+
+main.zip
+
 

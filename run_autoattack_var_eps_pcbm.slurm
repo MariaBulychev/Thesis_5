@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=0-5:00:00
+#SBATCH --time=0-3:00:00
 #SBATCH -p gpu-a100    
-#SBATCH --gres=gpu:1        
+#SBATCH --gres=gpu:1
+        
 
 # Load required modules
 module purge
@@ -21,4 +22,4 @@ echo "Running autoattack"
 # Navigate to your directory, if needed
 
 # Run the Python scripts
-srun -n 1 python3 run_autoattack_lin_prob_var_eps_pcbm.py 0.01
+srun -n 1 python3 run_autoattack_lin_prob_var_eps_pcbm.py 0.05

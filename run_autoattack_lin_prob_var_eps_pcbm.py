@@ -81,6 +81,8 @@ with open(csv_path, 'w', newline='') as csvfile:
     for images, labels in test_loader:
         print("start attack for epsilon:", epsilon)
         batch += 1
+        #if batch <= 60:  # Skip the first 60 batches
+            #continue
         print("batch "+str(batch))
         
         images, labels = images.to(device), labels.to(device)
