@@ -1,6 +1,7 @@
 from sklearn.metrics import confusion_matrix
 import numpy as np
 from .embedding_tools import load_or_compute_projections
+from .embedding_tools import load_or_compute_projections_ft
 
 
 class AverageMeter(object):

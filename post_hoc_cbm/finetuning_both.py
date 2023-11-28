@@ -35,6 +35,8 @@ def config():
     parser.add_argument("--weight-decay", default=0, type=float)
     parser.add_argument("--warmup", type=int, default=1000, help="number of steps to warmup for")
     parser.add_argument('--last_num_ft', type=int, default=-1, help="number of layers to refine for clip")
+    parser.add_argument('--train_numsteps', type=int, default=5)
+    parser.add_argument('--train_stepsize', type=int, default=1)
     return parser.parse_args()
 
 def convert_models_to_fp32(model):
@@ -63,14 +65,74 @@ def cosine_lr(optimizer, base_lr, warmup_length, steps):
     return _lr_adjuster
 
 class CLIPLinearProbe(nn.Module):
-    def __init__(self, clip_model, classifier):
+    def __init__(self, clip_model, pcbm):
         super().__init__()
         self.clip_model = clip_model
-        self.linear = classifier # 10 classes for CIFAR-10
+        self.pcbm = pcbm # 10 classes for CIFAR-10
+
+        self.preprocess = transforms.Compose([
+            transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+        ])
 
     def forward(self, images):
+        images = self.preprocess(images)
         image_features = self.clip_model.encode_image(images)
-        return self.linear(image_features)
+        return self.pcbm(image_features.float())
+
+
+########################################## Adversarial stuff ####################################################   
+
+def clamp(X, lower_limit, upper_limit):
+    return torch.max(torch.min(X, upper_limit), lower_limit)
+
+def attack_pgd(model, criterion, X, target, alpha, attack_iters, norm, restarts=1, early_stop=True, epsilon=0):
+    upper_limit, lower_limit = 1, 0
+    delta = torch.zeros_like(X).cuda()
+
+    if norm == "l_inf":
+        delta.uniform_(-epsilon, epsilon)
+
+    elif norm == "l_2":
+        delta.normal_()
+        d_flat = delta.view(delta.size(0), -1)
+        n = d_flat.norm(p=2, dim=1).view(delta.size(0), 1, 1, 1)
+        r = torch.zeros_like(n).uniform_(0, 1)
+        delta *= r / n * epsilon
+
+    else:
+        raise ValueError
+    
+    delta = clamp(delta, lower_limit - X, upper_limit - X)
+    delta.requires_grad = True
+
+    for _ in range(attack_iters):
+        # output = model(normalize(X ))
+
+        output = model(X+delta)
+
+        loss = criterion(output, target)
+
+        loss.backward()
+        grad = delta.grad.detach()
+        d = delta[:, :, :, :]
+        g = grad[:, :, :, :]
+        x = X[:, :, :, :]
+
+        if norm == "l_inf":
+            d = torch.clamp(d + alpha * torch.sign(g), min=-epsilon, max=epsilon)
+
+        elif norm == "l_2":
+            g_norm = torch.norm(g.view(g.shape[0], -1), dim=1).view(-1, 1, 1, 1)
+            scaled_g = g / (g_norm + 1e-10)
+            d = (d + scaled_g * alpha).view(d.size(0), -1).renorm(p=2, dim=0, maxnorm=epsilon).view_as(d)
+
+        d = clamp(d, lower_limit - x, upper_limit - x)
+        delta.data[:, :, :, :] = d
+        delta.grad.zero_()
+
+    return delta
 
 
 # Function to evaluate the model
@@ -82,7 +144,7 @@ def evaluate(probe_model, test_loader, criterion, preprocess, device):
 
     with torch.no_grad():
         for inputs, labels in test_loader:
-            inputs = preprocess(inputs).to(device)
+            #inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
     
             # Forward pass 
@@ -104,7 +166,7 @@ def evaluate(probe_model, test_loader, criterion, preprocess, device):
 # Main function
 def main(args):
     # Define the save directory
-    save_dir = "/data/gpfs/projects/punim2103/joint_training/finetuning_only_clip_10_epochs"
+    save_dir = "/data/gpfs/projects/punim2103/joint_training/ft_both_20_epochs"
     # Ensure the save directory exists
     os.makedirs(save_dir, exist_ok=True)
 
@@ -114,8 +176,9 @@ def main(args):
     # Load CLIP model
     clip_model, preprocess = clip.load('RN50', device, jit=False) #Must set jit=False for training
     clip_model = clip_model.to(args.device)
-    classifier = torch.load('/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth', map_location=device)
-    probe_model = CLIPLinearProbe(clip_model, classifier).to(device)
+    pcbm = torch.load('/data/gpfs/projects/punim2103/trained_pcbm.ckpt', map_location=device)
+
+    probe_model = CLIPLinearProbe(clip_model, pcbm).to(device)
     convert_models_to_fp32(probe_model) 
 
     # Load Datasets
@@ -138,13 +201,13 @@ def main(args):
     # Define optimizers and criterion
     if args.last_num_ft == -1:
         clip_optimizer = torch.optim.SGD([{'params': probe_model.clip_model.visual.parameters()},  # Parameters of the visual part
-                                          {'params': probe_model.linear.parameters()}],  # Parameters of the linear layer
+                                          {'params': probe_model.pcbm.trainable_params()}],  # Parameters of the pcbm layer
                                     lr=args.clip_learning_rate,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
     else:
         clip_optimizer = torch.optim.SGD([{'params': list(probe_model.clip_model.visual.parameters())[-args.last_num_ft:]},  # Parameters of the visual part
-                                          {'params': probe_model.linear.parameters()}],  # Parameters of the linear layer
+                                          {'params': probe_model.pcbm.trainable_params()}],  # Parameters of the pcbm layer
                                     lr=args.clip_learning_rate,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
@@ -173,6 +236,7 @@ def main(args):
         print(f'Epoch {epoch+1}/{args.num_epochs}')
         batch = 0
 
+        attack_norm = 'l_inf'
 
         # Step 4: Training loop for CLIP model
         for inputs, labels in train_loader:
@@ -183,12 +247,14 @@ def main(args):
             
             clip_optimizer.zero_grad()
 
-            inputs = preprocess(inputs).to(device)
+            #inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
 
             # Forward pass
-            with autocast():           
-                outputs = probe_model(inputs)
+            with autocast():    
+                delta = attack_pgd(probe_model, criterion, inputs, labels, alpha=args.train_stepsize, attack_iters=args.train_numsteps, norm=attack_norm, restarts=1, early_stop=True, epsilon=0.001)       
+                images = inputs + delta
+                outputs = probe_model(images)
                 loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
@@ -208,7 +274,7 @@ def main(args):
     final_model_path = os.path.join(save_dir, f'final_model_finetuned_{args.last_num_ft}_cliplayers_{args.clip_learning_rate}_clip_lr_{args.pcbm_learning_rate}_pcbm_lr.pth')
     torch.save({
         'clip_model_state_dict': probe_model.clip_model.state_dict(),
-        'linear_model_state_dict': probe_model.linear.state_dict(),
+        'pcbm_model_state_dict': probe_model.pcbm.state_dict(),
     }, final_model_path)
     print(f"Model saved to {final_model_path}")
 

@@ -35,6 +35,8 @@ def config():
     parser.add_argument("--weight-decay", default=0, type=float)
     parser.add_argument("--warmup", type=int, default=1000, help="number of steps to warmup for")
     parser.add_argument('--last_num_ft', type=int, default=-1, help="number of layers to refine for clip")
+    parser.add_argument('--train_numsteps', type=int, default=5)
+    parser.add_argument('--train_stepsize', type=int, default=1)
     return parser.parse_args()
 
 def convert_models_to_fp32(model):
@@ -62,20 +64,80 @@ def cosine_lr(optimizer, base_lr, warmup_length, steps):
         return lr
     return _lr_adjuster
 
+def clamp(X, lower_limit, upper_limit):
+    return torch.max(torch.min(X, upper_limit), lower_limit)
+
+def attack_pgd(model, criterion, X, target, alpha, attack_iters, norm, restarts=1, early_stop=True, epsilon=0):
+    upper_limit, lower_limit = 1, 0
+    delta = torch.zeros_like(X).cuda()
+
+    if norm == "l_inf":
+        delta.uniform_(-epsilon, epsilon)
+
+    elif norm == "l_2":
+        delta.normal_()
+        d_flat = delta.view(delta.size(0), -1)
+        n = d_flat.norm(p=2, dim=1).view(delta.size(0), 1, 1, 1)
+        r = torch.zeros_like(n).uniform_(0, 1)
+        delta *= r / n * epsilon
+
+    else:
+        raise ValueError
+    
+    delta = clamp(delta, lower_limit - X, upper_limit - X)
+    delta.requires_grad = True
+
+    for _ in range(attack_iters):
+        # output = model(normalize(X ))
+
+        output = model(X+delta)
+
+        loss = criterion(output, target)
+
+        loss.backward()
+        grad = delta.grad.detach()
+        d = delta[:, :, :, :]
+        g = grad[:, :, :, :]
+        x = X[:, :, :, :]
+
+        if norm == "l_inf":
+            d = torch.clamp(d + alpha * torch.sign(g), min=-epsilon, max=epsilon)
+
+        elif norm == "l_2":
+            g_norm = torch.norm(g.view(g.shape[0], -1), dim=1).view(-1, 1, 1, 1)
+            scaled_g = g / (g_norm + 1e-10)
+            d = (d + scaled_g * alpha).view(d.size(0), -1).renorm(p=2, dim=0, maxnorm=epsilon).view_as(d)
+
+        d = clamp(d, lower_limit - x, upper_limit - x)
+        delta.data[:, :, :, :] = d
+        delta.grad.zero_()
+
+    return delta
+
+
+# Combined model for generating adversarial examples 
 class CLIPLinearProbe(nn.Module):
-    def __init__(self, clip_model, classifier):
+    def __init__(self, clip_model, pcbm):
         super().__init__()
         self.clip_model = clip_model
-        self.linear = classifier # 10 classes for CIFAR-10
+        self.pcbm = pcbm # 10 classes for CIFAR-10
+
+        self.preprocess = transforms.Compose([
+            transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+        ])
 
     def forward(self, images):
+        images = self.preprocess(images)
         image_features = self.clip_model.encode_image(images)
-        return self.linear(image_features)
+        return self.pcbm(image_features.float())
 
 
 # Function to evaluate the model
-def evaluate(probe_model, test_loader, criterion, preprocess, device):
-    probe_model.eval()
+def evaluate(clip_model, pcbm, test_loader, criterion, preprocess, device):
+    clip_model.eval()
+    pcbm.eval()
     total_loss = 0
     all_predictions = []
     all_labels = []
@@ -85,8 +147,9 @@ def evaluate(probe_model, test_loader, criterion, preprocess, device):
             inputs = preprocess(inputs).to(device)
             inputs, labels = inputs.to(device), labels.to(device)
     
-            # Forward pass 
-            outputs = probe_model(inputs)
+            # Forward pass through PCBM
+            features = clip_model.encode_image(inputs)
+            outputs = pcbm(features.float().to(args.device), return_dist = False)
 
             # Compute loss
             loss = criterion(outputs, labels)
@@ -104,19 +167,35 @@ def evaluate(probe_model, test_loader, criterion, preprocess, device):
 # Main function
 def main(args):
     # Define the save directory
-    save_dir = "/data/gpfs/projects/punim2103/joint_training/finetuning_only_clip_10_epochs"
+    save_dir = f"/data/gpfs/projects/punim2103/joint_training/finetuning_both_40_epochs_different_lr/h_pcbm/{args.num_epochs}_epochs"
     # Ensure the save directory exists
     os.makedirs(save_dir, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    #checkpoint_path = '/data/gpfs/projects/punim2103/joint_training/finetuning_both_40_epochs_different_lr/final_model_finetuned_-1_cliplayers_1e-07_clip_lr_1e-07_pcbm_lr.pth'
+    #checkpoint = torch.load(checkpoint_path, map_location = device)
+    # Load the CLIP model state_dict
+    #clip_model_state_dict = checkpoint['clip_model_state_dict']
 
     # Load CLIP model
     clip_model, preprocess = clip.load('RN50', device, jit=False) #Must set jit=False for training
+    #clip_model.load_state_dict(clip_model_state_dict)
     clip_model = clip_model.to(args.device)
-    classifier = torch.load('/data/gpfs/projects/punim2103/new_attempt_4_classifier_model_full.pth', map_location=device)
-    probe_model = CLIPLinearProbe(clip_model, classifier).to(device)
-    convert_models_to_fp32(probe_model) 
+    convert_models_to_fp32(clip_model) 
+    
+    # normales CLIP und h-PCBM
+
+    # Load PCBM
+    h_pcbm = torch.load('/data/gpfs/projects/punim2103/trained_pcbm_hybrid_cifar10_model__lam:0.0002__alpha:0.99__seed:42.ckpt', map_location=device)
+    convert_models_to_fp32(h_pcbm) 
+    
+    for param in h_pcbm.trainable_params(): # params of residual classifier
+        param.requires_grad = True
+
+    for param in h_pcbm.bottleneck.trainable_params(): # params of pcbm
+        param.requires_grad = True
+
 
     # Load Datasets
     train_dataset = datasets.CIFAR10(root="/data/gpfs/projects/punim2103/data", train=True, transform=transforms.ToTensor())
@@ -137,19 +216,29 @@ def main(args):
 
     # Define optimizers and criterion
     if args.last_num_ft == -1:
-        clip_optimizer = torch.optim.SGD([{'params': probe_model.clip_model.visual.parameters()},  # Parameters of the visual part
-                                          {'params': probe_model.linear.parameters()}],  # Parameters of the linear layer
+        clip_optimizer = torch.optim.SGD(clip_model.visual.parameters(),
                                     lr=args.clip_learning_rate,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
     else:
-        clip_optimizer = torch.optim.SGD([{'params': list(probe_model.clip_model.visual.parameters())[-args.last_num_ft:]},  # Parameters of the visual part
-                                          {'params': probe_model.linear.parameters()}],  # Parameters of the linear layer
+        clip_optimizer = torch.optim.SGD(list(clip_model.visual.parameters())[-args.last_num_ft:],
                                     lr=args.clip_learning_rate,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
-    
+        
+    bottleneck_params = h_pcbm.bottleneck.trainable_params()
+    h_pcbm_params = h_pcbm.trainable_params()
 
+    # Combine the parameters into one list
+    combined_params = list(bottleneck_params) + list(h_pcbm_params)
+
+    # Create the optimizer with combined parameters
+    pcbm_optimizer = torch.optim.SGD(combined_params,
+                                lr=args.pcbm_learning_rate,
+                                momentum=args.momentum,
+                                weight_decay=args.weight_decay)
+    
+    
     criterion = torch.nn.CrossEntropyLoss().to(device)
 
     scaler = GradScaler()
@@ -158,58 +247,88 @@ def main(args):
     # Define step scheduler 
     total_steps = len(train_loader) * args.num_epochs
     clip_scheduler = cosine_lr(clip_optimizer, args.clip_learning_rate, args.warmup, total_steps)
+    pcbm_scheduler = cosine_lr(pcbm_optimizer, args.pcbm_learning_rate, args.warmup, total_steps)
     
 
     # Evaluate before training
-    val_loss, val_accuracy = evaluate(probe_model, test_loader, criterion, preprocess, args.device)
+    val_loss, val_accuracy = evaluate(clip_model, h_pcbm, test_loader, criterion, preprocess, args.device)
     print(f"Evaluation before training: Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
 
     #  Switch to train mode
-    probe_model.train()
+    clip_model.visual.train()
+    h_pcbm.train()
     
     # Training
     for epoch in range(args.num_epochs):
         print(f'Epoch {epoch+1}/{args.num_epochs}')
         batch = 0
-
+        attack_norm = 'l_inf'
+        
 
         # Step 4: Training loop for CLIP model
         for inputs, labels in train_loader:
             num_batches_per_epoch = len(train_loader)
             step = num_batches_per_epoch * epoch + batch
             clip_scheduler(step)
+            pcbm_scheduler(step)
 
             
             clip_optimizer.zero_grad()
+            pcbm_optimizer.zero_grad()
 
-            inputs = preprocess(inputs).to(device)
+            
             inputs, labels = inputs.to(device), labels.to(device)
 
-            # Forward pass
-            with autocast():           
-                outputs = probe_model(inputs)
-                loss = criterion(outputs, labels)
+            
+            with autocast():   
+                # Calculate original outputs
+                orig_images = preprocess(inputs).to(device)
+                orig_features = clip_model.encode_image(orig_images)
+                orig_features = orig_features.to(device) #features.float().to(device)
+                outputs_orig = h_pcbm(orig_features)
+
+                #### Incorporate adversarial examples ####
+                # Generate adversarial examples
+                probe_model = CLIPLinearProbe(clip_model, h_pcbm).to(device)
+                convert_models_to_fp32(probe_model) 
+                # inputs go in unpreprocessed because probe_model does preprocessing 
+                delta = attack_pgd(probe_model, criterion, inputs, labels, alpha=args.train_stepsize, attack_iters=args.train_numsteps, norm=attack_norm, restarts=1, early_stop=True, epsilon=0.001)       
+                
+                # preprocess after the attack (because now we dont evaluate with the probe_model)               
+                adv_images = inputs + delta
+                adv_images = preprocess(adv_images).to(device)
+                
+                # Calculate adversarial outputs
+                adv_features = clip_model.encode_image(adv_images)
+                adv_features = adv_features.to(device) #features.float().to(device)
+                outputs_adv = h_pcbm(adv_features)
+
+                total_outputs = outputs_orig + outputs_adv
+                loss = criterion(total_outputs, labels)
 
             scaler.scale(loss).backward()
 
             scaler.step(clip_optimizer)
+            scaler.step(pcbm_optimizer)
             scaler.update()
 
             batch += 1
 
         print("Evaluating...")
-        val_loss, val_accuracy = evaluate(probe_model, test_loader, criterion, preprocess, args.device)
+        val_loss, val_accuracy = evaluate(clip_model, h_pcbm, test_loader, criterion, preprocess, args.device)
 
         # Print epoch results
         print(f"Epoch {epoch+1}/{args.num_epochs}, Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
-    # Save the final model 
-    final_model_path = os.path.join(save_dir, f'final_model_finetuned_{args.last_num_ft}_cliplayers_{args.clip_learning_rate}_clip_lr_{args.pcbm_learning_rate}_pcbm_lr.pth')
+    # Save the final model
+    final_model_path = os.path.join(save_dir, f'final_model_ft_hpcbm_{args.last_num_ft}_cliplayers_{args.clip_learning_rate}_clip_lr_{args.pcbm_learning_rate}_pcbm_lr.pth')
     torch.save({
-        'clip_model_state_dict': probe_model.clip_model.state_dict(),
-        'linear_model_state_dict': probe_model.linear.state_dict(),
+        #'wrapped_model_state_dict': wrapped_model.state_dict(),
+        'clip_model_state_dict': clip_model.state_dict(),
+        'pcbm_model_state_dict': h_pcbm.state_dict(),
     }, final_model_path)
+
     print(f"Model saved to {final_model_path}")
 
 
