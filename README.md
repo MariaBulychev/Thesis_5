@@ -23,7 +23,14 @@ We propose a novel method of learning the concepts employing adversarial traning
 
 CLIP is available in the [OpenAI repo](https://github.com/openai/CLIP). The Inception model used for HAM10k is available in this [GDrive](https://drive.google.com/uc?id=1ToT8ifJ5lcWh8Ix19ifWlMcMz9UZXcmo).
 
+## Learning concepts 
 
+In the thesis, we analysed two different methods of learning the concepts - from an image data bank and from textual concept descriptions. For the image based approach we proposed a novel adversarial training technique.
+
+### Learning concepts from an image dataset
+
+To learn concepts in this way, 
+We provide code to extract concept data loaders for BRODEN and derm7pt in `post_hoc_cbm/data/concept_loaders.py`. After extracting the concept loaders, the `learn_concepts_dataset.py` script can be used to learn the concept vectors. Setting `--adv` 
 
 
 
