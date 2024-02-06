@@ -7,6 +7,9 @@ The for the Master's Thesis "Adversarial Robustness of Post-hoc Concept Bottlene
 
 This represents an overview on Post-hoc Concept Bottleneck Models, as proposed in [[1]](https://arxiv.org/pdf/2205.15480.pdf). 
 
+We propose a novel method of learning the concepts employing adversarial traning. 
+![Learning Concepts with Adversarial Training](https://github.com/MariaBulychev/Thesis_5/blob/master/adv_conc___.png?raw=true "PCBM Revision Image")
+
 ## Dowloading the Data 
 
 | Dataset | Description | URL |
