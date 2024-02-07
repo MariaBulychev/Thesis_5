@@ -57,7 +57,30 @@ CONC_DIR = /path/to/GPT/concepts
 python3 learn_concepts_multimodal_GPT.py --backbone-name="clip:RN50" --out-dir=$OUT_DIR --concept-file-path=$CONC_DIR --recurse=1
 ```
 
-To generate a concept bank with GPT, please use the scripts `GPT_initial_concepts.py` and `GPT_filter_concepts.py`. 
+To generate a concept bank with GPT, please run the scripts `GPT_initial_concepts.py` and `GPT_filter_concepts.py`. 
+
+## Training PCBMs
+
+Once the CAVs have been learned, the PCBM can be trained by running:
+
+```bash
+python3 train_pcbm.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --dataset="cifar10" --backbone-name="clip:RN50" --out-dir=$OUTPUT_DIR --lam=2e-4
+```
+
+## Training PCBM-h
+
+Based on the PCBM learned in the previous step, the PCBM-h can be trained by running: 
+
+```bash
+pcbm_path="/path/to/pcbm_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
+python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --dataset="cifar10" --backbone-name="clip:RN50" --out-dir=$OUTPUT_DIR --lam=2e-4
+```
+
+## Experiments 
+
+# Testing adversarial robustness 
+
+The robustness of a PCBM can be tested by running
 
 ## References:
 <a id="ref1">[1]</a> Mert Yuksekgonul, Maggie Wang, and James Zou, *Post-hoc Concept Bottleneck Models*, 2023. [PDF](https://arxiv.org/pdf/2205.15480.pdf)
