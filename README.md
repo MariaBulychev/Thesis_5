@@ -30,23 +30,34 @@ In the thesis, we analysed two different methods of learning the concepts - from
 ### Learning concepts from an image dataset
 
 To learn concepts in this way, we need a annotated concept bank ccomprisingpositive and negative examples for each concept. Following [[1]](https://arxiv.org/pdf/2205.15480.pdf), we learn the concepts as concept activation vectors (CAVs).
-We provide code to extract concept data loaders for BRODEN and derm7pt in `post_hoc_cbm/data/concept_loaders.py`. After extracting the concept loaders, the `learn_concepts_dataset.py` script can be used to learn the concept vectors. Setting `--adv=True` integrates adversarial training into the CAV learning process.
+We provide code to extract concept data loaders for BRODEN and derm7pt in `post_hoc_cbm/data/concept_loaders.py`. After extracting the concept loaders, the `learn_concepts_dataset.py` script can be used to learn the concept vectors. Setting `--adv=True` integrates adversarial training into the CAV learning process. To use a finetuned version of the backbone, specify the corresponding checkpoint as `--backbone-path`
 
 ```bash
 OUT_DIR = /path/to/save/conceptbank
 
 # Learning Broden Concepts
-python3 learn_concepts_dataset.py --dataset-name="broden" --backbone-name="clip:RN50" --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUTPUT_DIR
+python3 learn_concepts_dataset.py --dataset-name="broden" --backbone-name="clip:RN50" --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUT_DIR
 
 # Learning Derm7pt Concepts
-python3 learn_concepts_dataset.py --dataset-name="derm7pt" --backbone-name="ham10000_inception" --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUTPUT_DIR
+python3 learn_concepts_dataset.py --dataset-name="derm7pt" --backbone-name="ham10000_inception" --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUT_DIR
 ```
 
 ### Learning concepts with multimodal models from textual descriptions 
 
-If we use a multimodal model such as [CLIP](https://arxiv.org/pdf/2103.00020.pdf) as the backbone, we can utilise their text encoder to obtain  the CAVs. 
+If we use a multimodal model such as [CLIP](https://arxiv.org/pdf/2103.00020.pdf) as the backbone, we can utilise their text encoder to obtain the CAVs. 
 
+```bash
+OUT_DIR = /path/to/save/conceptbank
 
+# Learning ConceptNet Concepts
+python3 learn_concepts_multimodal_ConceptNet.py --backbone-name="clip:RN50" --out-dir=$OUT_DIR --recurse=1
+
+# Learning GPT Concepts
+CONC_DIR = /path/to/GPT/concepts
+python3 learn_concepts_multimodal_GPT.py --backbone-name="clip:RN50" --out-dir=$OUT_DIR --concept-file-path=$CONC_DIR --recurse=1
+```
+
+To generate a concept bank with GPT, please use the scripts `GPT_initial_concepts.py` and `GPT_filter_concepts.py`. 
 
 ## References:
 <a id="ref1">[1]</a> Mert Yuksekgonul, Maggie Wang, and James Zou, *Post-hoc Concept Bottleneck Models*, 2023. [PDF](https://arxiv.org/pdf/2205.15480.pdf)
