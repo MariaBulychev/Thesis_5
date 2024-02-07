@@ -153,7 +153,7 @@ python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pk
 
 ---
 ## References:
-<a id="ref1">[1]</a> Mert Yuksekgonul, Maggie Wang, and James Zou, *Post-hoc Concept Bottleneck Models*, 2023. [PDF](https://arxiv.org/pdf/2205.15480.pdf)
+<a id="ref1">[1]</a> Mert Yuksekgonul, Maggie Wang, and James Zou, *Post-hoc Concept Bottleneck Models*, 2023. [PDF](https://arxiv.org/pdf/2205.15480.pdf) [Github](https://github.com/mertyg/post-hoc-cbm)
 
 <a id="ref1">[2]</a> Abubakar Abid, Mert Yuksekgonul, and James Zou, Meaningfully debugging model mistakes using conceptual counterfactual explanations, 2022. [PDF](https://arxiv.org/pdf/2106.12723.pdf)
 
@@ -161,5 +161,6 @@ python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pk
 
 <a id="ref1">[4]</a> Philipp Tschandl, Cliff Rosendahl, and Harald Kittler, The ham10000 dataset, a large collection of multi-source dermatoscopic images of common pigmented skin lesions, Scientific Data 5 (2018), no. 1. [PDF](https://www.nature.com/articles/sdata2018161)
 
-<a id="ref1">[5]</a> Jeremy Kawahara, Sara Daneshvar, Giuseppe Argenziano, and Ghassan Hamarneh, Seven-point checklist and skin lesion classification using multitask multimodal neural nets, IEEE
-Journal of Biomedical and Health Informatics 23 (2019), no. 2, 538–546. [PDF](https://ieeexplore.ieee.org/document/8333693)
+<a id="ref1">[5]</a> Jeremy Kawahara, Sara Daneshvar, Giuseppe Argenziano, and Ghassan Hamarneh, Seven-point checklist and skin lesion classification using multitask multimodal neural nets, IEEE Journal of Biomedical and Health Informatics 23 (2019), no. 2, 538–546. [PDF](https://ieeexplore.ieee.org/document/8333693)
+
+<a id="ref1">[6]</a> Tuomas Oikarinen, Subhro Das, Lam M Nguyen, and Tsui-Wei Weng, Label-free concept bottleneck models, International Conference on Learning Representations, 2023. [PDF](https://arxiv.org/pdf/2304.06129.pdf) [Github](https://github.com/Trustworthy-ML-Lab/Label-free-CBM)
