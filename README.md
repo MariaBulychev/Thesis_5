@@ -73,14 +73,32 @@ Based on the PCBM learned in the previous step, the PCBM-h can be trained by run
 
 ```bash
 pcbm_path="/path/to/pcbm_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
-python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --dataset="cifar10" --backbone-name="clip:RN50" --out-dir=$OUTPUT_DIR --lam=2e-4
+python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" ----pcbm-path=$pcbm_path --out-dir=$OUTPUT_DIR --lam=2e-4 --dataset="cifar10"
 ```
+---
 
 ## Experiments 
 
-# Testing adversarial robustness 
+### Testing adversarial robustness 
 
-The robustness of a PCBM can be tested by running
+The robustness of a PCBM can be tested by running:
+
+```bash
+pcbm_path="/path/to/pcbm_h_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
+python3 run_autoattack.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 --norm='Linf'
+```
+
+### Generating explanations and saliency maps  
+
+The following script will generate explanations (top-7 concepts and their scores) as well as 
+saliency maps for the top-7 concepts identified in an image.  The code only considers images where the original image has been classified correctly and the adversarial image incorrectly. It breaks after 10 such images have been found. 
+
+```bash
+pcbm_path="/path/to/pcbm_h_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
+python3 saliency_maps.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 --norm='Linf'
+```
+
+
 
 ## References:
 <a id="ref1">[1]</a> Mert Yuksekgonul, Maggie Wang, and James Zou, *Post-hoc Concept Bottleneck Models*, 2023. [PDF](https://arxiv.org/pdf/2205.15480.pdf)
