@@ -74,7 +74,8 @@ Based on the PCBM learned in the previous step, the PCBM-h can be trained by run
 
 ```bash
 pcbm_path="/path/to/pcbm_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
-python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" ----pcbm-path=$pcbm_path --out-dir=$OUTPUT_DIR --lam=2e-4 --dataset="cifar10"
+
+python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --pcbm-path=$pcbm_path --out-dir=$OUTPUT_DIR --lam=2e-4 --dataset="cifar10"
 ```
 ---
 
@@ -86,6 +87,7 @@ The robustness of a PCBM can be tested by running:
 
 ```bash
 pcbm_path="/path/to/pcbm_h_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
+
 python3 run_autoattack.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 --norm='Linf'
 ```
 
@@ -112,7 +114,43 @@ python3 concept_robustness.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.
 
 ## Adversarial Finetuning
 
+The models from out finetuning experiments can be reproduced using the code in `finetuning.py`. For example, reproducing experiment i would require the following steps:
 
+### Step 1: Learning the concepts 
+In experiment i, we want to use the finetuned clip model as backbone and employ adversarial training to learn the CAVs. 
+
+```bash
+OUT_DIR = /path/to/save/conceptbank
+CLIP_PATH = /path/to/finetuned/clip
+
+# Learning Broden Concepts
+python3 learn_concepts_dataset.py --dataset-name="broden" --backbone-name="clip:RN50" --backbone-path=$CLIP_PATH --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUT_DIR --adv-conc=True
+```
+
+### Step 2: Building the PCBM
+Base on this concept bank, we build the PCBM.
+
+```bash
+python3 train_pcbm.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --dataset="cifar10" --backbone-name="clip:RN50" --finetuned-clip-path=$CLIP_PATH --out-dir=$OUTPUT_DIR --lam=2e-4
+```
+
+### Step 3: Finetuning the PCBM
+Now, we want to finetune the PCBM from the previous step.
+```bash
+pcbm_path="/path/to/pcbm_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
+
+python3 finetuning.py --out-dir=$OUTPUT_DIR --num_epochs=50 --clip-path=$CLIP_PATH --pcbm-path=$pcbm_path
+```
+
+### Step 4: Building a PCBM-h
+Based on the finetuned PCBM, we build a PCBM-h. There is no need to specify `CLIP_PATH` here as in step 3, CLIP was finetuned a second time jointly with the PCBM linear layer and is now stored in `FT_PCBM_PATH`
+
+```bash
+FT_PCBM_PATH = /path/to/finetuned/pcbm
+
+python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --pcbm-path=$pcbm_path --finetuning-path=$FT_PCBM_PATH --out-dir=$OUTPUT_DIR --lam=2e-4 --dataset="cifar10"
+
+---
 ## References:
 <a id="ref1">[1]</a> Mert Yuksekgonul, Maggie Wang, and James Zou, *Post-hoc Concept Bottleneck Models*, 2023. [PDF](https://arxiv.org/pdf/2205.15480.pdf)
 
