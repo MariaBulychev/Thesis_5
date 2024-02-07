@@ -29,8 +29,22 @@ In the thesis, we analysed two different methods of learning the concepts - from
 
 ### Learning concepts from an image dataset
 
-To learn concepts in this way, 
-We provide code to extract concept data loaders for BRODEN and derm7pt in `post_hoc_cbm/data/concept_loaders.py`. After extracting the concept loaders, the `learn_concepts_dataset.py` script can be used to learn the concept vectors. Setting `--adv` 
+To learn concepts in this way, we need a annotated concept bank ccomprisingpositive and negative examples for each concept. Following [[1]](https://arxiv.org/pdf/2205.15480.pdf), we learn the concepts as concept activation vectors (CAVs).
+We provide code to extract concept data loaders for BRODEN and derm7pt in `post_hoc_cbm/data/concept_loaders.py`. After extracting the concept loaders, the `learn_concepts_dataset.py` script can be used to learn the concept vectors. Setting `--adv=True` integrates adversarial training into the CAV learning process.
+
+```bash
+OUT_DIR = /path/to/save/conceptbank
+
+# Learning Broden Concepts
+python3 learn_concepts_dataset.py --dataset-name="broden" --backbone-name="clip:RN50" --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUTPUT_DIR
+
+# Learning Derm7pt Concepts
+python3 learn_concepts_dataset.py --dataset-name="derm7pt" --backbone-name="ham10000_inception" --C 0.001 0.01 0.1 1.0 10.0 --n-samples=50 --out-dir=$OUTPUT_DIR
+```
+
+### Learning concepts with multimodal models from textual descriptions 
+
+If we use a multimodal model such as [CLIP](https://arxiv.org/pdf/2103.00020.pdf) as the backbone, we can utilise their text encoder to obtain  the CAVs. 
 
 
 
