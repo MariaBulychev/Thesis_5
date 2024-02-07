@@ -1,6 +1,6 @@
 # Adversarial Robustness of Post-hoc Concept Bottleneck Models in Machine Learning
 
-The for the Master's Thesis "Adversarial Robustness of Post-hoc Concept Bottleneck Models in Machine Learning
+Code for the Master's Thesis "Adversarial Robustness of Post-hoc Concept Bottleneck Models in Machine Learning
 ". 
 
 ![PCBM Revision](https://github.com/MariaBulychev/Thesis_5/blob/master/pcbm_revision__3.png?raw=true "PCBM Revision Image")
