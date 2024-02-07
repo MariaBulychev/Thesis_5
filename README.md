@@ -149,6 +149,7 @@ Based on the finetuned PCBM, we build a PCBM-h. There is no need to specify `CLI
 FT_PCBM_PATH = /path/to/finetuned/pcbm
 
 python3 train_pcbm_h.py --concept-bank="${OUTPUT_DIR}/broden_clip:RN50_0.1_50.pkl" --pcbm-path=$pcbm_path --finetuning-path=$FT_PCBM_PATH --out-dir=$OUTPUT_DIR --lam=2e-4 --dataset="cifar10"
+```
 
 ---
 ## References:
