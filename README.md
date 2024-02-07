@@ -54,6 +54,7 @@ python3 learn_concepts_multimodal_ConceptNet.py --backbone-name="clip:RN50" --ou
 
 # Learning GPT Concepts
 CONC_DIR = /path/to/GPT/concepts
+
 python3 learn_concepts_multimodal_GPT.py --backbone-name="clip:RN50" --out-dir=$OUT_DIR --concept-file-path=$CONC_DIR --recurse=1
 ```
 
@@ -91,13 +92,25 @@ python3 run_autoattack.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 
 ### Generating explanations and saliency maps  
 
 The following script will generate explanations (top-7 concepts and their scores) as well as 
-saliency maps for the top-7 concepts identified in an image.  The code only considers images where the original image has been classified correctly and the adversarial image incorrectly. It breaks after 10 such images have been found. 
+saliency maps for the top-7 concepts identified in an image.  The code only considers images where the original image has been classified correctly and the adversarial image incorrectly. It breaks after 10 such images have been found. You need to specify the directory where the adversarial images (w.r.t. the specified norm and epsilon) from the previous step have been saved. 
 
 ```bash
-pcbm_path="/path/to/pcbm_h_cifar10__clip:RN50__broden_clip:RN50_0__lam:0.0002__alpha:0.99__seed:42.ckpt"
-python3 saliency_maps.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 --norm='Linf'
+ADV_DIR = /path/to/adversarial/images
+
+python3 saliency_maps.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 --norm='Linf' --adv-dir=$ADV_DIR
 ```
 
+### Evaluating the concept robustness
+
+The robustness of concepts can be evaluated by running:
+
+```bash
+ADV_DIR = /path/to/adversarial/images
+
+python3 concept_robustness.py --pcbm_path=$pcbm_path --out-dir=$OUT_DIR --eps=0.001 --norm='Linf' --adv-dir=$ADV_DIR
+```
+
+## Adversarial Finetuning
 
 
 ## References:
